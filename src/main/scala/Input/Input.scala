@@ -1,0 +1,5 @@
+package Input
+
+trait Input {
+
+}

@@ -1,5 +1,7 @@
 package top_layer
 
+import java.util.UUID
+
 import Event.{ErrorEvent, Event, OutputEvent, SideEffectEvent}
 import domain_models.{Child, DomainModel}
 
@@ -8,8 +10,8 @@ import scala.util.control.TailCalls.TailRec
 
 object DomainModelGraph {
 
-  val parentLookup = mutable.Map[DomainModel[DomainModel[_]], DomainModel[_]]()
-
+  val entityLookup = mutable.Map[UUID, DomainModel[_]]()
+  val parentLookup = mutable.Map[UUID, UUID]()
 
   private var topObject: Option[TopObject] = None
 
@@ -36,4 +38,7 @@ object DomainModelGraph {
     }
 
   }
+
+
+
 }

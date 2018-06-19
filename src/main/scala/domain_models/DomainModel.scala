@@ -8,4 +8,6 @@ trait DomainModel[A] {
 
   def updateChild(child: DomainModel[_]): DomainModel[A]
 
+
+
 }

@@ -1,5 +1,0 @@
-package Input
-
-trait Input {
-
-}

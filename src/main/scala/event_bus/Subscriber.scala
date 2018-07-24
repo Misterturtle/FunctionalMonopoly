@@ -1,17 +1,57 @@
 package event_bus
 
-import events.Event
+import events.{Event, QueryEvent, TriggerEvent}
+
+import scala.concurrent.Future
+import scala.util.Failure
+//import story.TriggerState
 
 import scala.collection.mutable
 import scala.collection.mutable.ListBuffer
+import scala.concurrent.Promise
+import scala.util.Success
+import scala.reflect.runtime.universe.{TypeTag, typeTag}
+
+case class UnknownPromise(promise:Promise[_]) extends Throwable
 
 trait Subscriber {
 
-  type EventCondition = Event => Boolean
+  private val eventBus = EventBus.shared
+  private var _queryPromise : Promise[QueryEvent] = _
+  private var _triggerPromise : Promise[TriggerEvent] = _
+  private var _repeatTriggerPromise : Boolean = false
 
-  private val _eventConditions: mutable.Map[Class[_ <: Event], Event => Boolean] = mutable.Map[Class[_ <: Event], EventCondition]()
 
-  def checkConditions(event:Event): Boolean = _eventConditions(event.getClass)(event)
+  def promiseEvent[A](promise:Promise[A], repeat: Boolean = false) = {
 
-  def addConditionForEvent[T <: Event](eventClass:Class[T], condition: T => Boolean) = _eventConditions(eventClass) = condition.asInstanceOf[EventCondition]
+    promise
+
+    promise match {
+      case typedPromise : Promise[TriggerEvent] => {
+        _triggerPromise = typedPromise
+        _repeatTriggerPromise = repeat
+      }
+      case typedPromise : Promise[QueryEvent] => _queryPromise = typedPromise
+      case unknownPromise : Promise[_] => unknownPromise.failure(UnknownPromise(unknownPromise))
+    }
+  }
+
+  def fulfillEventPromise[B <: Event](event:B, tt: TypeTag[B]): Unit = {
+
+    event match {
+      case queryEvent: QueryEvent => {
+        _queryPromise.success(queryEvent)
+      }
+
+      case triggerEvent: TriggerEvent => {
+        _triggerPromise.success(triggerEvent)
+
+        if(_repeatTriggerPromise){
+          eventBus.subscribeTo(tt, this)
+        }
+      }
+
+      case _ => throw new Exception("Unknown event type. Subscriber.fulfillEventPromise("+event+")")
+    }
+  }
 }

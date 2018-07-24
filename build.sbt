@@ -1,13 +1,10 @@
 name := "FunctionalMonopoly"
 
-version := "0.1"
+version := "0.0"
 
-scalaVersion := "2.11.6"
+scalaVersion := "2.12.6"
 
 libraryDependencies += "org.scalatest" %% "scalatest" % "3.0.4" % "test"
 
-resolvers += "Typesafe Repository" at "http://repo.typesafe.com/typesafe/releases/"
+libraryDependencies += "org.scala-lang" % "scala-reflect" % "2.12.6"
 
-libraryDependencies += "com.typesafe.akka" %% "akka-actor" % "2.3.8"
-
-libraryDependencies += "com.typesafe.akka" %% "akka-testkit" % "2.5.11" % Test

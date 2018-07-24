@@ -1,5 +1,5 @@
 package events
 
-case class TestEvent(id:Int) extends Event
+case class TestEvent() extends Event
 
-case class TestEventStatus(id:Int, status:String) extends QueryEvent
+case class TestEventStatus(status:String) extends QueryEvent

@@ -1,7 +1,6 @@
 package event_bus
 
-import events.{Event, EventType, QueryEvent, TriggerEvent}
-import story.Story
+import events.Event
 
 import scala.collection.mutable
 import scala.collection.mutable.ListBuffer
@@ -31,7 +30,6 @@ class EventBus() {
 
   def unsubscribe(tt: TypeTag[_ <: Event], subscriber: Subscriber): Unit = {
     subDictionary.removeSubFor(tt.tpe, subscriber)
-
   }
 
   def post[B <: Event](event:B, tt: TypeTag[B]): Unit = {
@@ -62,7 +60,12 @@ class SubDictionary {
     dictionary(event) = subsFor(event).filter(_ == subscriber)
   }
 
-  def subsFor[A <: Event](tt: Type): List[Subscriber] = dictionary(tt)
+  def subsFor[A <: Event](tt: Type): List[Subscriber] =
+    if(dictionary.isDefinedAt(tt)){
+      dictionary(tt)
+    } else {
+      Nil
+    }
 }
 
 class EventStack {

@@ -8,42 +8,53 @@ import scala.reflect.ClassTag
 import scala.util.{Failure, Success, Try}
 import scala.reflect.runtime.universe.{TypeTag, typeTag}
 import scala.concurrent.ExecutionContext.Implicits.global
+import scala.reflect.runtime.universe
 import scala.reflect.runtime.universe._
+
+object Stateful {
+  def switchStates[A <: Stateful](stateful: A, newState: State[A])(implicit tt: TypeTag[A]): Unit = {
+    stateful._currentState.stories.foreach(_.disable())
+    stateful._currentState = newState.asInstanceOf[State[Stateful]]
+    newState.stories.foreach(_.enable(stateful, tt))
+  }
+}
 
 trait Stateful {
 
-  private val addressBook = AddressBook.shared
-
-  protected val states: List[State]
-
-  protected var _currentState: Option[State] = None
+  protected val _addressBook: AddressBook = AddressBook.shared
+  protected val states: List[State[Stateful]]
+  protected var _currentState: State[Stateful]
 
   val address: Address
 
   def cast[A](tt: TypeTag[A]): A = this.asInstanceOf[A]
 
-//  def switchStates(newState: State): Unit = {
-//    _currentState.foreach(state => state.stories.foreach(_.disable()))
-//    _currentState = Some(newState)
-//    newState.stories.foreach(_.enable(this))
-//  }
+  _addressBook.initStateful(this)
+  _currentState.enable(this)
+  println(_addressBook.getStateful(address)._2.tpe)
 }
 
+case class State[A <: Stateful](stories: List[_ <: StoryVerbage[A]])(implicit tt: TypeTag[A]) {
+  def enable(stateful: A): Unit = {
+    stories.foreach(_.enable(stateful, tt))
+  }
 
-
-case class State(stories: List[_ >: Story[_ <: Stateful]])
+  def disable: Unit = {
+    stories.foreach(_.disable())
+  }
+}
 
 
 trait StoryExtension[A <: Stateful] extends StoryVerbage[A] {
   val baseStory: Story[A]
 
-  def givenQueryEvent[B <: QueryEvent](queryEvent: B, tt:TypeTag[B]): QueryStory[A, B] = baseStory.givenQueryEvent(queryEvent, tt)
+  def givenQueryEvent[B <: QueryEvent](queryEvent: B, tt: TypeTag[B]): QueryStory[A, B] = baseStory.givenQueryEvent(queryEvent, tt)
 
   def whenTriggerEvent[T <: TriggerEvent](tt: TypeTag[T]): TriggerStoryVerbage[A, T] = baseStory.whenTriggerEvent(tt)
 
-  def enable(stateful: A)(implicit tt: TypeTag[A]): Unit = baseStory.enable(stateful)
+  def enable(stateful: A, tt: TypeTag[A])(implicit mutationTT: TypeTag[MutationEvent[A]]): Unit = baseStory.enable(stateful, tt)
 
-  def disable: Unit = baseStory.disable
+  def disable: Unit = baseStory.disable()
 }
 
 trait TriggerStoryVerbage[A <: Stateful, B <: TriggerEvent] extends StoryExtension[A] {
@@ -61,9 +72,9 @@ trait StoryVerbage[A <: Stateful] {
 
   def whenTriggerEvent[T <: TriggerEvent](eventClass: TypeTag[T]): TriggerStoryVerbage[A, T]
 
-  def enable(stateful: A)(implicit tt: TypeTag[A]): Unit
+  def enable(stateful: A, tt: TypeTag[A])(implicit mutationTT: TypeTag[MutationEvent[A]]): Unit
 
-  def disable: Unit
+  def disable(): Unit
 }
 
 object Story {
@@ -118,7 +129,7 @@ class Story[A <: Stateful] extends StoryVerbage[A] with Subscriber {
     }
   }
 
-  def enable(stateful: A)(implicit tt: TypeTag[A]): Unit = {
+  def enable(stateful: A, tt: TypeTag[A])(implicit mutationTT: TypeTag[MutationEvent[A]]): Unit = {
 
     val triggerFuture = eventBus.subscribeTo(_triggerEventType.get, this)
 
@@ -135,26 +146,26 @@ class Story[A <: Stateful] extends StoryVerbage[A] with Subscriber {
         }
 
         queryAfterCondition.map {
-          case Success(queryEvent:QueryEvent) => {
+          case Success(queryEvent: QueryEvent) => {
             //todo: Dangerous .get
             val mutationEvent = MutationEvent[A](_mutationFn.get)
-            eventBus.post(mutationEvent, typeTag[MutationEvent[A]])
-            addressBook.updateStateful(stateful, mutationEvent)
+            eventBus.post(mutationEvent, mutationTT)
+            addressBook.updateStateful(stateful, mutationEvent, tt)
           }
 
           case Failure(QueryConditionFailed()) => {
             this.disable()
-            this.enable(stateful)
+            this.enable(stateful, tt)
           }
         }
       }
 
-      case Failure(TriggerConditionFailed()) => enable(stateful)
+      case Failure(TriggerConditionFailed()) => enable(stateful, tt)
     }
   }
 
   def disable(): Unit = {
-    _triggerEventType.foreach(eventBus.unsubscribe(_, this))
+    _triggerEventType.map(eventBus.unsubscribe(_, this))
   }
 }
 

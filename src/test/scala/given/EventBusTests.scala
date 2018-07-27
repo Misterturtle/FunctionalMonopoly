@@ -1,35 +1,31 @@
 package given
 
-import event_bus.{AddressBook, EventBus, Address}
+import event_bus.{Address, AddressBook, EventBus}
 import events.TriggerEvent
+import given.Ent1.testStory
 import org.scalatest.{FreeSpec, Matchers}
-import story.{State, Stateful, Story}
+import story.{State, Stateful, Story, StoryVerbage}
+
+import scala.reflect.runtime.universe
 import scala.reflect.runtime.universe._
 
 class EventBusTests extends FreeSpec with Matchers {
 
+
+
+
+
+
   "playground" in {
 
-    case class Entity1(address:Address, value: String) extends Stateful {
-
-      val story = Story[Entity1]
-        .whenTriggerEvent(typeTag[TestTriggerEvent])
-        .thenBroadcastMutation(self => self.copy(value = "Changed"))
-
-      val stories = List(story)
-      val newState = State(stories)
-
-      override protected val states: List[State] = List(newState)
-    }
-
-    val eventBus = new EventBus()
-    val addressBook = new AddressBook()
-    EventBus.shared = eventBus
+    val eventBus = EventBus.shared
+    val addressBook = AddressBook.shared
 
     val entity = Entity1(Address("/root"), "Not Change")
+
     eventBus.post(TestTriggerEvent(), typeTag[TestTriggerEvent])
 
-    val newEntity = addressBook.getStateful(Address("/root")).asInstanceOf[Entity1]
+    val newEntity = addressBook.getStateful(Address("/root"))._1.asInstanceOf[Entity1]
 
     newEntity.value shouldBe "Changed"
   }
@@ -38,3 +34,19 @@ class EventBusTests extends FreeSpec with Matchers {
 }
 
 case class TestTriggerEvent() extends TriggerEvent
+
+case object Ent1 {
+
+  val testStory: StoryVerbage[Entity1] = Story[Entity1]
+    .whenTriggerEvent(typeTag[TestTriggerEvent])
+    .thenBroadcastMutation(self => self.copy(value = "Changed"))
+
+  val state: State[Entity1] = State(List(testStory))
+
+}
+case class Entity1(address:Address, value:String) extends {
+  override protected val states: List[State[_]] = List(Ent1.state)
+  override protected var _currentState: State[_] = states.head
+} with Stateful {
+
+}

@@ -44,9 +44,8 @@ case object Ent1 {
   val state: State[Entity1] = State(List(testStory))
 
 }
-case class Entity1(address:Address, value:String) extends {
-  override protected val states: List[State[_]] = List(Ent1.state)
-  override protected var _currentState: State[_] = states.head
-} with Stateful {
-
+case class Entity1(address:Address, value:String) extends Stateful {
+  override protected val states: List[State[_ <: Stateful]] = List(Ent1.state)
+  override protected var _currentState: State[_ <: Stateful] = states.head
 }
+

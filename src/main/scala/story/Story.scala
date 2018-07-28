@@ -8,8 +8,15 @@ import scala.reflect.ClassTag
 import scala.util.{Failure, Success, Try}
 import scala.reflect.runtime.universe.{TypeTag, typeTag}
 import scala.concurrent.ExecutionContext.Implicits.global
-import scala.reflect.runtime.universe
 import scala.reflect.runtime.universe._
+
+
+trait SF[A] {
+  protected val states: List[State[Stateful]]
+  protected var _currentState: State[Stateful]
+}
+
+
 
 object Stateful {
   def switchStates[A <: Stateful](stateful: A, newState: State[A])(implicit tt: TypeTag[A]): Unit = {
@@ -22,8 +29,8 @@ object Stateful {
 trait Stateful {
 
   protected val _addressBook: AddressBook = AddressBook.shared
-  protected val states: List[State[Stateful]]
-  protected var _currentState: State[Stateful]
+  protected val states: List[State[_ <: Stateful]]
+  protected var _currentState: State[_ <: Stateful]
 
   val address: Address
 

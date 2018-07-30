@@ -1,5 +1,6 @@
 package event_bus
 
+import Implicits.MyImplicits._
 import events.MutationEvent
 import story.Stateful
 
@@ -15,21 +16,19 @@ object AddressBook {
 
 class AddressBook(){
 
-  private var lookup: mutable.Map[String, (Stateful, TypeTag[_])] = mutable.Map[String, (Stateful, TypeTag[_])]()
+  private var lookup: mutable.Map[String, (A, Stateful[A]) forSome { type A }] = mutable.Map[String, (A, Stateful[A]) forSome { type A }]()
 
   //todo: Return back a Future that will fulfill when the stateful can be async updated
-  def getStateful(address:Address): (Stateful, TypeTag[_]) = {
+  def getStateful(address:Address): (A, Stateful[A]) forSome { type A } = {
     lookup(address.path)
   }
 
   //todo: Return back a Future that will fulfill when the stateful can be async updated
-  def updateStateful[A <: Stateful](stateful:A, mutationEvent: MutationEvent[A], tt :TypeTag[A]): Unit = {
-    lookup(stateful.address.path) = (mutationEvent.mutationFn(stateful), tt)
+  def updateStateful[A : Stateful](stateful:A, mutationEvent: MutationEvent[A]): Unit = {
+    lookup(stateful.address.path) = (mutationEvent.mutationFn(stateful), implicitly[Stateful[A]])
   }
 
-  def initStateful[A <: Stateful](stateful: A)(implicit tag: TypeTag[A]): Unit = {
-    lookup(stateful.address.path) = (stateful, tag)
+  def initStateful[A : Stateful](stateful: A): Unit = {
+    lookup(stateful.address.path) = (stateful, implicitly[Stateful[A]])
   }
-
-
 }

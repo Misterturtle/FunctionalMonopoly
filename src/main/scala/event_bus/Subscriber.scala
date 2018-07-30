@@ -36,7 +36,7 @@ trait Subscriber {
     }
   }
 
-  def fulfillEventPromise[B <: Event](event:B, tt: TypeTag[B]): Unit = {
+  def fulfillEventPromise[B <: Event](event:B): Unit = {
 
     event match {
       case queryEvent: QueryEvent => {

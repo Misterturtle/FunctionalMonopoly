@@ -1,6 +1,7 @@
 package event_bus
 
-import events.Event
+import events.{Event, MutationEvent}
+import story.TypeRetention
 
 import scala.collection.mutable
 import scala.collection.mutable.ListBuffer
@@ -32,14 +33,19 @@ class EventBus() {
     subDictionary.removeSubFor(tt.tpe, subscriber)
   }
 
-  def post[B <: Event](event:B, tt: TypeTag[B]): Unit = {
-    eventStack.addEvent(event)
-    notifySubsOfEvent(event, tt)
+  def postMutationEvent[A](mutationEvent: MutationEvent[A]): Unit = {
+    eventStack.addEvent(mutationEvent)
+    notifySubsOfEvent(mutationEvent, mutationEvent.tt)
   }
 
-  private def notifySubsOfEvent[B <: Event](event:B, tt:TypeTag[B]) = {
-    val subs = subDictionary.subsFor(tt.tpe)
-    subs.foreach(_.fulfillEventPromise(event, tt))
+  def post[B <: Event : TypeRetention[B]](event:B): Unit = {
+    eventStack.addEvent(event)
+    notifySubsOfEvent(event, event.tpe)
+  }
+
+  private def notifySubsOfEvent[B <: Event : TypeRetention[B]](event:B) = {
+    val subs = subDictionary.subsFor(event.tpe)
+    subs.foreach(_.fulfillEventPromise(event))
   }
 }
 

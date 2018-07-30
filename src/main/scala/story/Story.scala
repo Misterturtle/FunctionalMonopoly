@@ -1,49 +1,50 @@
 package story
 
+import Implicits.MyImplicits._
 import event_bus.{Address, AddressBook, EventBus, Subscriber}
 import events.{QueryEvent, _}
 
-import scala.concurrent.{Future, Promise}
-import scala.reflect.ClassTag
-import scala.util.{Failure, Success, Try}
-import scala.reflect.runtime.universe.{TypeTag, typeTag}
 import scala.concurrent.ExecutionContext.Implicits.global
-import scala.reflect.runtime.universe._
-
-
-trait SF[A] {
-  protected val states: List[State[Stateful]]
-  protected var _currentState: State[Stateful]
-}
+import scala.concurrent.Future
+import scala.reflect.runtime.universe.{TypeTag, typeTag}
+import scala.util.{Failure, Success, Try}
 
 
 
-object Stateful {
-  def switchStates[A <: Stateful](stateful: A, newState: State[A])(implicit tt: TypeTag[A]): Unit = {
-    stateful._currentState.stories.foreach(_.disable())
-    stateful._currentState = newState.asInstanceOf[State[Stateful]]
-    newState.stories.foreach(_.enable(stateful, tt))
+case class TestTriggerEvent() extends TriggerEvent
+
+case object Entity1 {
+
+  val testStory: Story[Entity1] = Story[Entity1]
+    .whenTriggerEvent(typeTag[TestTriggerEvent])
+    .thenBroadcastMutation(self => self.copy(value = "Changed"))
+
+  val state: State[Entity1] = State(List(testStory))
+
+  implicit val creationFn: Stateful[Entity1] = new Stateful[Entity1] {
+    override val states: List[State[Entity1]] = List(state)
+    override var _currentState: State[Entity1] = states.head
+    override val address: Address = Address("root/entity1")
   }
+
+}
+case class Entity1(address:Address, value:String)
+
+
+trait TypeRetention[A] {
+  val tpe: TypeTag[A]
 }
 
-trait Stateful {
-
-  protected val _addressBook: AddressBook = AddressBook.shared
-  protected val states: List[State[_ <: Stateful]]
-  protected var _currentState: State[_ <: Stateful]
-
+trait Stateful[A] {
+  val _addressBook: AddressBook = AddressBook.shared
+  val states: List[State[A]]
+  var _currentState: State[A]
   val address: Address
-
-  def cast[A](tt: TypeTag[A]): A = this.asInstanceOf[A]
-
-  _addressBook.initStateful(this)
-  _currentState.enable(this)
-  println(_addressBook.getStateful(address)._2.tpe)
 }
 
-case class State[A <: Stateful](stories: List[_ <: StoryVerbage[A]])(implicit tt: TypeTag[A]) {
+case class State[A](stories: List[Story[A]]) {
   def enable(stateful: A): Unit = {
-    stories.foreach(_.enable(stateful, tt))
+    stories.foreach(_.enable(stateful))
   }
 
   def disable: Unit = {
@@ -51,45 +52,32 @@ case class State[A <: Stateful](stories: List[_ <: StoryVerbage[A]])(implicit tt
   }
 }
 
+trait TriggerStoryVerbage[A, B <: TriggerEvent] {
+  def meetsCondition(fn: B => Boolean): TriggerStory[A, B]
 
-trait StoryExtension[A <: Stateful] extends StoryVerbage[A] {
-  val baseStory: Story[A]
-
-  def givenQueryEvent[B <: QueryEvent](queryEvent: B, tt: TypeTag[B]): QueryStory[A, B] = baseStory.givenQueryEvent(queryEvent, tt)
-
-  def whenTriggerEvent[T <: TriggerEvent](tt: TypeTag[T]): TriggerStoryVerbage[A, T] = baseStory.whenTriggerEvent(tt)
-
-  def enable(stateful: A, tt: TypeTag[A])(implicit mutationTT: TypeTag[MutationEvent[A]]): Unit = baseStory.enable(stateful, tt)
-
-  def disable: Unit = baseStory.disable()
+  def thenBroadcastMutation(mutationFn: A => A): TriggerStory[A, B]
 }
 
-trait TriggerStoryVerbage[A <: Stateful, B <: TriggerEvent] extends StoryExtension[A] {
-  def meetsCondition(fn: B => Boolean): TriggerStoryVerbage[A, B]
-
-  def thenBroadcastMutation(mutationFn: A => A): TriggerStoryVerbage[A, B]
+trait QueryStoryVerbage[A, B <: QueryEvent] {
+  def respondsWith(fn: B => Boolean): QueryStory[A, B]
 }
 
-trait QueryStoryVerbage[A <: Stateful, B <: QueryEvent] extends StoryExtension[A] {
-  def respondsWith(fn: B => Boolean): QueryStoryVerbage[A, B]
-}
+trait StoryVerbage[A] {
+  def givenQueryEvent[B <: QueryEvent](queryEvent: B)(implicit tt:TypeTag[B]): QueryStory[A, B]
 
-trait StoryVerbage[A <: Stateful] {
-  def givenQueryEvent[B <: QueryEvent](queryEvent: B, tt: TypeTag[B]): QueryStoryVerbage[A, B]
+  def whenTriggerEvent[T <: TriggerEvent](eventClass: TypeTag[T]): TriggerStory[A, T]
 
-  def whenTriggerEvent[T <: TriggerEvent](eventClass: TypeTag[T]): TriggerStoryVerbage[A, T]
-
-  def enable(stateful: A, tt: TypeTag[A])(implicit mutationTT: TypeTag[MutationEvent[A]]): Unit
+  def enable(stateful: A, tt:TypeTag[A]): Unit
 
   def disable(): Unit
 }
 
 object Story {
 
-  def apply[A <: Stateful] = new Story[A]()
+  def apply[A] = new Story[A]()
 }
 
-class Story[A <: Stateful] extends StoryVerbage[A] with Subscriber {
+class Story[A] extends StoryVerbage[A] with Subscriber {
 
 
   var eventBus: EventBus = EventBus.shared
@@ -102,16 +90,16 @@ class Story[A <: Stateful] extends StoryVerbage[A] with Subscriber {
   var _mutationFn: Option[A => A] = None
   var _triggerEventType: Option[TypeTag[_ <: TriggerEvent]] = None
 
-  def givenQueryEvent[B <: QueryEvent](queryEvent: B, tt: TypeTag[B]): QueryStory[A, B] = {
+  def givenQueryEvent[B <: QueryEvent](queryEvent: B)(implicit tt: TypeTag[B]): QueryStory[A, B] = {
     _fireQueryEventWithResponse = Some(() => {
-      eventBus.post(queryEvent, tt)
+      eventBus.post(queryEvent)
       eventBus.subscribeTo(tt, this)
     })
 
     QueryStory[A, B](this)
   }
 
-  def whenTriggerEvent[T <: TriggerEvent](tt: TypeTag[T]): TriggerStoryVerbage[A, T] = {
+  def whenTriggerEvent[T <: TriggerEvent](tt: TypeTag[T]): TriggerStory[A, T] = {
 
     _triggerEventType = Some(tt)
 
@@ -136,8 +124,9 @@ class Story[A <: Stateful] extends StoryVerbage[A] with Subscriber {
     }
   }
 
-  def enable(stateful: A, tt: TypeTag[A])(implicit mutationTT: TypeTag[MutationEvent[A]]): Unit = {
+  def enable(stateful: A): Unit = {
 
+    //todo: dangerous .get
     val triggerFuture = eventBus.subscribeTo(_triggerEventType.get, this)
 
     val triggerAfterCondition: Future[Try[TriggerEvent]] = triggerFuture.map { case triggerEvent: TriggerEvent =>
@@ -156,24 +145,25 @@ class Story[A <: Stateful] extends StoryVerbage[A] with Subscriber {
           case Success(queryEvent: QueryEvent) => {
             //todo: Dangerous .get
             val mutationEvent = MutationEvent[A](_mutationFn.get)
-            eventBus.post(mutationEvent, mutationTT)
-            addressBook.updateStateful(stateful, mutationEvent, tt)
+            eventBus.postMutationEvent(mutationEvent)
+            addressBook.updateStateful(stateful, mutationEvent)
           }
 
           case Failure(QueryConditionFailed()) => {
             this.disable()
-            this.enable(stateful, tt)
+            this.enable(stateful)
           }
         }
       }
 
-      case Failure(TriggerConditionFailed()) => enable(stateful, tt)
+      case Failure(TriggerConditionFailed()) => enable(stateful)
     }
   }
 
   def disable(): Unit = {
     _triggerEventType.map(eventBus.unsubscribe(_, this))
   }
+
 }
 
 case class TriggerConditionFailed[A]() extends Throwable
@@ -181,28 +171,28 @@ case class TriggerConditionFailed[A]() extends Throwable
 case class QueryConditionFailed[A]() extends Throwable
 
 object QueryStory {
-  def apply[A <: Stateful, B <: QueryEvent](baseStory: Story[A]) = new QueryStory[A, B](baseStory)
+  def apply[A, B <: QueryEvent](baseStory: Story[A]) = new QueryStory[A, B](baseStory)
 }
 
-class QueryStory[A <: Stateful, B <: QueryEvent](val baseStory: Story[A]) extends QueryStoryVerbage[A, B] with StoryExtension[A] {
-  def respondsWith(fn: B => Boolean): QueryStoryVerbage[A, B] = {
+class QueryStory[A, B <: QueryEvent](val baseStory: Story[A]) extends Story[A] with QueryStoryVerbage[A, B] {
+  def respondsWith(fn: B => Boolean): QueryStory[A, B] = {
     baseStory._queryCondition = Some(fn.asInstanceOf[QueryEvent => Boolean])
     this
   }
 }
 
 object TriggerStory {
-  def apply[A <: Stateful, B <: TriggerEvent](baseStory: Story[A]) = new TriggerStory[A, B](baseStory)
+  def apply[A, B <: TriggerEvent](baseStory: Story[A]) = new TriggerStory[A, B](baseStory)
 }
 
-class TriggerStory[A <: Stateful, B <: TriggerEvent](val baseStory: Story[A]) extends TriggerStoryVerbage[A, B] with StoryExtension[A] {
+class TriggerStory[A, B <: TriggerEvent](val baseStory: Story[A]) extends Story[A] with TriggerStoryVerbage[A, B] {
 
-  def meetsCondition(fn: B => Boolean): TriggerStoryVerbage[A, B] = {
+  def meetsCondition(fn: B => Boolean): TriggerStory[A, B] = {
     baseStory._triggerCondition = Some(fn.asInstanceOf[TriggerEvent => Boolean])
     this
   }
 
-  def thenBroadcastMutation(mutationFn: A => A): TriggerStoryVerbage[A, B] = {
+  def thenBroadcastMutation(mutationFn: A => A): TriggerStory[A, B] = {
     baseStory._mutationFn = Some(mutationFn)
     this
   }

@@ -1,12 +1,10 @@
 package given
 
 import event_bus.{Address, AddressBook, EventBus}
-import events.TriggerEvent
-import given.Ent1.testStory
 import org.scalatest.{FreeSpec, Matchers}
-import story.{State, Stateful, Story, StoryVerbage}
+import story.{Entity1, TestTriggerEvent}
 
-import scala.reflect.runtime.universe
+import Implicits.MyImplicits._
 import scala.reflect.runtime.universe._
 
 class EventBusTests extends FreeSpec with Matchers {
@@ -23,7 +21,7 @@ class EventBusTests extends FreeSpec with Matchers {
 
     val entity = Entity1(Address("/root"), "Not Change")
 
-    eventBus.post(TestTriggerEvent(), typeTag[TestTriggerEvent])
+    eventBus.post(TestTriggerEvent())
 
     val newEntity = addressBook.getStateful(Address("/root"))._1.asInstanceOf[Entity1]
 
@@ -33,19 +31,7 @@ class EventBusTests extends FreeSpec with Matchers {
 
 }
 
-case class TestTriggerEvent() extends TriggerEvent
 
-case object Ent1 {
 
-  val testStory: StoryVerbage[Entity1] = Story[Entity1]
-    .whenTriggerEvent(typeTag[TestTriggerEvent])
-    .thenBroadcastMutation(self => self.copy(value = "Changed"))
 
-  val state: State[Entity1] = State(List(testStory))
-
-}
-case class Entity1(address:Address, value:String) extends Stateful {
-  override protected val states: List[State[_ <: Stateful]] = List(Ent1.state)
-  override protected var _currentState: State[_ <: Stateful] = states.head
-}
 
